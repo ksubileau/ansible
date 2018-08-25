@@ -4,6 +4,7 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 #Requires -Module Ansible.ModuleUtils.Legacy
+#Requires -Module Ansible.ModuleUtils.SID
 
 $ErrorActionPreference = "Stop"
 
@@ -19,7 +20,7 @@ $name = Get-AnsibleParam -obj $params -name "name" -type "str" -failifempty $tru
 $description = Get-AnsibleParam -obj $params -name "description" -type "str"
 $state = Get-AnsibleParam -obj $params -name "state" -type "str" -default "present" -validateset "absent","present","enabled","disabled"
 $computer_group_type = Get-AnsibleParam -obj $params -name "computer_group_type" -type "str" -validateset $computer_group_types
-$computer_group = Get-AnsibleParam -obj $params -name "computer_group" -type "str"
+$computer_group = Get-AnsibleParam -obj $params -name "computer_group" -type "str" -failifempty ($computer_group_type -eq "ad_network_resource_group" -or $computer_group_type -eq "rdg_group")
 $user_groups = Get-AnsibleParam -obj $params -name "user_groups" -type "list"
 $allowed_ports = Get-AnsibleParam -obj $params -name "allowed_ports" -type "list"
 
@@ -83,8 +84,49 @@ if ($name -match "[*/\\;:?`"<>|\t]+") {
     Fail-Json -obj $result -message "Invalid character in RAP name."
 }
 
+# Validate user groups
+if ($null -ne $user_groups) {
+    if ($user_groups.Count -lt 1) {
+        Fail-Json -obj $result -message "Parameter 'user_groups' cannot be an empty list."
+    }
+
+    $user_groups = $user_groups | foreach {
+        $group = $_
+        # Test that the group is resolvable on the local machine
+        $sid = Convert-ToSID -account_name $group
+        if (!$sid) {
+            Fail-Json -obj $result -message "$group is not a valid user group on the host machine or domain"
+        }
+
+        # Return the normalized group name in UPN format
+        $group_name = Convert-FromSID -sid $sid
+        ($group_name -split "\\")[1..0] -join "@"
+    }
+    $user_groups = @($user_groups)
+}
+
+# Validate computer group parameter
 if ($computer_group_type -eq "allow_any" -and $null -ne $computer_group) {
-    Add-Warning -obj $result -message "Parameter computer_group ignored because the computer_group_type is set to allow_any."
+    Add-Warning -obj $result -message "Parameter 'computer_group' ignored because the computer_group_type is set to allow_any."
+} elseif ($computer_group_type -eq "rdg_group" -and -not (Test-Path -Path "RDS:\GatewayServer\GatewayManagedComputerGroups\$computer_group")) {
+    Fail-Json -obj $result -message "$computer_group is not a valid gateway managed computer group"
+} elseif ($computer_group_type -eq "ad_network_resource_group") {
+    $sid = Convert-ToSID -account_name $computer_group
+    if (!$sid) {
+        Fail-Json -obj $result -message "$computer_group is not a valid computer group on the host machine or domain"
+    }
+    # Ensure the group name is in UPN format
+    $computer_group = Convert-FromSID -sid $sid
+    $computer_group = ($computer_group -split "\\")[1..0] -join "@"
+}
+
+# Validate port numbers
+if ($null -ne $allowed_ports) {
+    foreach ($port in $allowed_ports) {
+        if ($port -notmatch "^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]|any)$") {
+            Fail-Json -obj $result -message "$port is not a valid port number."
+        }
+    }
 }
 
 # Ensure RemoteDesktopServices module is loaded
@@ -117,9 +159,10 @@ if ($state -eq 'absent') {
         $result.changed = $true
     }
 
+    # we cannot configure a RAP that was created above in check mode as it
+    # won't actually exist
     if($rap_exist) {
         $rap = Get-RAP -Name $name
-        $result.rap = $rap
 
         if ($state -in @('enabled', 'disabled')) {
             $rap_enabled = $state -ne 'disabled'
@@ -135,7 +178,6 @@ if ($state -eq 'absent') {
         }
 
         if ($null -ne $allowed_ports -and @(Compare-Object $rap.PortNumbers $allowed_ports -SyncWindow 0).Count -ne 0) {
-            # TODO Ensure array contains only valid port numbers
             if ($allowed_ports -contains 'any') { $allowed_ports = '*' }
             Set-RAPPropertyValue -Name $name -Property PortNumbers -Value $allowed_ports -ResultObj $result -WhatIf:$check_mode
             $result.changed = $true
@@ -167,13 +209,11 @@ if ($state -eq 'absent') {
             $groups_to_remove = @($rap.UserGroups | where { $user_groups -notcontains $_ })
             $groups_to_add = @($user_groups | where { $rap.UserGroups -notcontains $_ })
 
-            # TODO Check that each element is a valid group name (required)
             foreach($group in $groups_to_add) {
                 New-Item -Path "RDS:\GatewayServer\RAP\$name\UserGroups" -Name $group -WhatIf:$check_mode
                 $result.changed = $true
             }
 
-            # TODO Check that we keep at least one group (required)
             foreach($group in $groups_to_remove) {
                 Remove-Item -Path "RDS:\GatewayServer\RAP\$name\UserGroups\$group" -WhatIf:$check_mode
                 $result.changed = $true

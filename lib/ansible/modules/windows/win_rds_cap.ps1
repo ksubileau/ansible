@@ -4,6 +4,7 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 #Requires -Module Ansible.ModuleUtils.Legacy
+#Requires -Module Ansible.ModuleUtils.SID
 
 $ErrorActionPreference = "Stop"
 
@@ -95,6 +96,49 @@ if ($name -match "[*/\\;:?`"<>|\t]+") {
     Fail-Json -obj $result -message "Invalid character in CAP name."
 }
 
+# Validate user groups
+if ($null -ne $user_groups) {
+    if ($user_groups.Count -lt 1) {
+        Fail-Json -obj $result -message "Parameter 'user_groups' cannot be an empty list."
+    }
+
+    $user_groups = $user_groups | foreach {
+        $group = $_
+        # Test that the group is resolvable on the local machine
+        $sid = Convert-ToSID -account_name $group
+        if (!$sid) {
+            Fail-Json -obj $result -message "$group is not a valid user group on the host machine or domain"
+        }
+
+        # Return the normalized group name in UPN format
+        $group_name = Convert-FromSID -sid $sid
+        ($group_name -split "\\")[1..0] -join "@"
+    }
+    $user_groups = @($user_groups)
+}
+
+# Validate computer groups
+if ($null -ne $computer_groups) {
+    $computer_groups = $computer_groups | foreach {
+        $group = $_
+        # Test that the group is resolvable on the local machine
+        $sid = Convert-ToSID -account_name $group
+        if (!$sid) {
+            Fail-Json -obj $result -message "$group is not a valid computer group on the host machine or domain"
+        }
+
+        # Return the normalized group name in UPN format
+        $group_name = Convert-FromSID -sid $sid
+        ($group_name -split "\\")[1..0] -join "@"
+    }
+    $computer_groups = @($computer_groups)
+}
+
+# Validate order parameter
+if ($null -ne $order -and $order -lt 1) {
+    Fail-Json -obj $result -message "Parameter 'order' must be a strictly positive integer."
+}
+
 # Ensure RemoteDesktopServices module is loaded
 if ((Get-Module -Name RemoteDesktopServices -ErrorAction SilentlyContinue) -eq $null) {
     Import-Module -Name RemoteDesktopServices
@@ -125,6 +169,8 @@ if ($state -eq 'absent') {
         $result.changed = $true
     }
 
+    # we cannot configure a CAP that was created above in check mode as it
+    # won't actually exist
     if($cap_exist) {
         $cap = Get-CAP -Name $name
 
@@ -142,7 +188,13 @@ if ($state -eq 'absent') {
         }
 
         if ($null -ne $order -and $order -ne $cap.EvaluationOrder) {
-            # TODO Handle InvalidArgument exception when the order value supplied is greater than the total number of CAPs
+            # Order cannot be greater than the total number of existing CAPs (InvalidArgument exception)
+            $cap_count =  (Get-ChildItem -Path "RDS:\GatewayServer\CAP").Count
+            if($order -gt $cap_count) {
+                Add-Warning -obj $result -message "Given value '$order' for parameter 'order' is greater than the number of existing CAPs. The actual order will be capped to '$cap_count'."
+                $order = $cap_count
+            }
+
             Set-CAPPropertyValue -Name $name -Property EvaluationOrder -Value $order -ResultObj $result -WhatIf:$check_mode
             $result.changed = $true
         }
@@ -200,13 +252,11 @@ if ($state -eq 'absent') {
             $groups_to_remove = @($cap.UserGroups | where { $user_groups -notcontains $_ })
             $groups_to_add = @($user_groups | where { $cap.UserGroups -notcontains $_ })
 
-            # TODO Check that each element is a valid group name (required)
             foreach($group in $groups_to_add) {
                 New-Item -Path "RDS:\GatewayServer\CAP\$name\UserGroups" -Name $group -WhatIf:$check_mode
                 $result.changed = $true
             }
 
-            # TODO Check that we keep at least one group (required)
             foreach($group in $groups_to_remove) {
                 Remove-Item -Path "RDS:\GatewayServer\CAP\$name\UserGroups\$group" -WhatIf:$check_mode
                 $result.changed = $true
@@ -217,7 +267,6 @@ if ($state -eq 'absent') {
             $groups_to_remove = @($cap.ComputerGroups | where { $computer_groups -notcontains $_ })
             $groups_to_add = @($computer_groups | where { $cap.ComputerGroups -notcontains $_ })
 
-            # TODO Check that each element is a valid group name (required)
             foreach($group in $groups_to_add) {
                 New-Item -Path "RDS:\GatewayServer\CAP\$name\ComputerGroups" -Name $group -WhatIf:$check_mode
                 $result.changed = $true

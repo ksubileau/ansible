@@ -3,8 +3,8 @@
   win_rds_rap:
     name: '{{ test_win_rds_rap_name }}'
     user_groups:
+      - administrators
       - users@builtin
-      - administrators@builtin
     state: present
   register: new_rap_check
   check_mode: yes
@@ -23,8 +23,8 @@
   win_rds_rap:
     name: '{{ test_win_rds_rap_name }}'
     user_groups:
+      - administrators
       - users@builtin
-      - administrators@builtin
     state: present
   register: new_rap
 
@@ -42,8 +42,8 @@
   win_rds_rap:
     name: '{{ test_win_rds_rap_name }}'
     user_groups:
+      - administrators
       - users@builtin
-      - administrators@builtin
     state: present
   register: new_rap_again
 
@@ -62,10 +62,11 @@
     name: '{{ test_win_rds_rap_name }}'
     description: 'Description of {{ test_win_rds_rap_name }}'
     user_groups:
+      # Test with different group name formats
       - users@builtin
-      - guests@builtin
+      - .\guests
     computer_group_type: ad_network_resource_group
-    computer_group: administrators@builtin
+    computer_group: administrators
     allowed_ports:
       - 3389
       - 3390
@@ -193,3 +194,61 @@
   register: new_rap_without_group
   check_mode: yes
   failed_when: "new_rap_without_group.msg != 'User groups must be defined to create a new RAP.'"
+
+- name: fail when create a new RAP with an empty user group list
+  win_rds_rap:
+    name: '{{ test_win_rds_rap_name }}'
+    user_groups: []
+    state: present
+  register: new_rap_empty_group_list
+  check_mode: yes
+  failed_when: "new_rap_empty_group_list.msg is not search('cannot be an empty list')"
+
+- name: fail when create a new RAP with an invalid user group
+  win_rds_rap:
+    name: '{{ test_win_rds_rap_name }}'
+    user_groups:
+      - fake_group
+    state: present
+  register: new_rap_invalid_group
+  check_mode: yes
+  failed_when: new_rap_invalid_group.changed != false or new_rap_invalid_group.msg is not search('is not a valid account')
+
+- name: fail when create a new RAP with an invalid AD computer group
+  win_rds_rap:
+    name: '{{ test_win_rds_rap_name }}'
+    user_groups:
+      - administrators
+    computer_group_type: ad_network_resource_group
+    computer_group: fake_ad_group
+    state: present
+  register: new_rap_invalid_ad_computer_group
+  check_mode: yes
+  failed_when: new_rap_invalid_ad_computer_group.changed != false or new_rap_invalid_ad_computer_group.msg is not search('is not a valid account')
+
+- name: fail when create a new RAP with an invalid gateway managed computer group
+  win_rds_rap:
+    name: '{{ test_win_rds_rap_name }}'
+    user_groups:
+      - administrators
+    computer_group_type: rdg_group
+    computer_group: fake_rdg_group
+    state: present
+  register: new_rap_invalid_rdg_computer_group
+  check_mode: yes
+  failed_when: new_rap_invalid_rdg_computer_group.changed != false or new_rap_invalid_rdg_computer_group.msg is not search('is not a valid gateway managed computer group')
+
+- name: fail when create a new RAP with invalid port numbers
+  win_rds_rap:
+    name: '{{ test_win_rds_rap_name }}'
+    user_groups:
+      - administrators
+    allowed_ports:
+      - '{{ item }}'
+    state: present
+  loop:
+    - invalid_port_number
+    - 65536
+  register: new_rap_invalid_port
+  check_mode: yes
+  failed_when: new_rap_invalid_port.changed != false or new_rap_invalid_port.msg is not search('is not a valid port number')
