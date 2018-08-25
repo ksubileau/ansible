@@ -106,7 +106,7 @@ EXAMPLES = '''
   win_rds_cap:
     name: My CAP
     user_groups:
-      - BUILTIN\users
+      - BUILTIN\\users
     session_timeout: 30
     session_timeout_action: disconnect
     allow_only_sdrts_servers: true
