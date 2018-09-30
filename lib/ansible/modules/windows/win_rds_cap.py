@@ -1,27 +1,27 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# Copyright: (c) 2018, Ansible Project
+# Copyright: (c) 2018, Kevin Subileau (@ksubileau)
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
-DOCUMENTATION = '''
+DOCUMENTATION = r'''
 ---
 module: win_rds_cap
 short_description: Manage Connection Authorization Policies (CAP) on a Remote Desktop Gateway server
 description:
   - Creates, removes and configures a Remote Desktop connection authorization policy (RD CAP).
   - A RD CAP allows you to specify the users who can connect to a Remote Desktop Gateway server.
-version_added: "2.7"
+version_added: "2.8"
 author:
   - Kevin Subileau (@ksubileau)
 options:
   name:
     description:
-      - Name of the connection authorization policy
+      - Name of the connection authorization policy.
     required: yes
   state:
     description:
@@ -79,34 +79,35 @@ options:
     type: list
   redirect_clipboard:
     description:
-      - Allow clipboard redirection
+      - Allow clipboard redirection.
     type: bool
   redirect_drives:
     description:
-      - Allow disk drive redirection
+      - Allow disk drive redirection.
     type: bool
   redirect_printers:
     description:
-      - Allow printers redirection
+      - Allow printers redirection.
     type: bool
   redirect_serial:
     description:
-      - Allow serial port redirection
+      - Allow serial port redirection.
     type: bool
   redirect_pnp:
     description:
-      - Allow Plug and Play devices redirection
+      - Allow Plug and Play devices redirection.
     type: bool
 requirements:
-  - Windows Server 2008R2 (6.1) or higher with RDS features
+  - Windows Server 2008R2 (6.1) or higher.
+  - The Windows Feature "RDS-Gateway" must be enabled.
 '''
 
-EXAMPLES = '''
+EXAMPLES = r'''
 - name: Create a new RDS CAP with a 30 minutes timeout and clipboard redirection enabled
   win_rds_cap:
     name: My CAP
     user_groups:
-      - BUILTIN\\users
+      - BUILTIN\users
     session_timeout: 30
     session_timeout_action: disconnect
     allow_only_sdrts_servers: true
@@ -118,5 +119,5 @@ EXAMPLES = '''
     state: enabled
 '''
 
-RETURN = '''
+RETURN = r'''
 '''
