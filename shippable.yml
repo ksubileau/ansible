@@ -113,12 +113,6 @@ matrix:
     - env: T=sanity/1
     - env: T=sanity/2
 
-    - env: T=windows/2008-R2/5
-    - env: T=windows/2012/5
-    - env: T=windows/2012-R2/5
-    - env: T=windows/2016/5
-    - env: T=windows/2008/5
-
 branches:
   except:
     - "*-patch-*"
